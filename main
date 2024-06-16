@@ -1,0 +1,297 @@
+#Enter device here, 'cuda' for GPU, and 'cpu' for CPU
+device = 'cuda'
+
+import numpy as np
+import matplotlib.pyplot as plt
+from tqdm.notebook import tqdm
+import os
+import torch
+from torchvision import transforms
+import torch.nn as nn
+import torch.optim as optim
+import torch.nn.functional as F
+import torchvision.transforms.functional as FT
+from PIL import Image
+import random
+from torch.nn import MSELoss
+
+def transform_image(image_path):
+    # Define a transform to convert images to the format expected by your model
+    transform = transforms.Compose([
+        transforms.ToTensor(),  # Convert the image to a PyTorch tensor
+        # Add other transformations if needed
+    ])
+
+    # Read the image using PIL (Python Imaging Library)
+    image = Image.open(image_path)
+
+    # Apply the defined transform
+    image_tensor = transform(image).unsqueeze(0)  # Add batch dimension
+
+    return image_tensor
+noise_type = 'gauss' # Either 'gauss' or 'poiss'
+noise_level = 25     # Pixel range is 0-255 for Gaussian, and 0-1 for Poission
+
+def add_noise(x,noise_level):
+
+    if noise_type == 'gauss':
+        noisy = x + torch.normal(0, noise_level/255, x.shape)
+        noisy = torch.clamp(noisy,0,1)
+
+    elif noise_type == 'poiss':
+        noisy = torch.poisson(noise_level * x)/noise_level
+
+    return noisy
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class TwoCon(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size, padding):
+        super().__init__()
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size, padding)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size, padding)
+    
+    def forward(self, x):
+        x = self.conv1(x)
+        x = F.relu(x)
+        x = self.conv2(x)
+        x = F.relu(x)
+        return x
+
+class ResnetBlock(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size=3, padding=1):
+        super(ResnetBlock, self).__init__()
+
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size, padding=padding)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size, padding=padding)
+        self.residual_adjust = nn.Conv2d(in_channels, out_channels, kernel_size=1, padding=0)
+
+    def forward(self, x):
+        residual = self.residual_adjust(x)  # Adjust dimensions of residual
+        #print(residual.shape)
+        x = F.leaky_relu(self.conv1(x), negative_slope=0.2)
+        x = F.leaky_relu(self.conv2(x), negative_slope=0.2)
+        #print(x.shape)
+        x += residual  # Add the residual connection
+        return x
+    
+    
+class Network(nn.Module):
+    def __init__(self, n_chan, chan_embed=24):
+        super(Network, self).__init__()    
+        self.act = nn.LeakyReLU(negative_slope=0.2, inplace=True)
+        
+        self.twocon1 = nn.Conv2d(n_chan, chan_embed, kernel_size=3, padding=1)
+        self.resnet_block1 = ResnetBlock(n_chan, chan_embed)
+        
+        self.twocon2 = nn.Conv2d(chan_embed, chan_embed, kernel_size=3, padding=1)
+        self.resnet_block2 = ResnetBlock(chan_embed, chan_embed)
+        
+        self.twocon3 = nn.Conv2d(chan_embed, n_chan, kernel_size=1, padding=0)
+        self.resnet_block3 = ResnetBlock(chan_embed, n_chan, kernel_size=1, padding=0)
+        
+    def forward(self, x):
+        x1 = x
+        #print(x.shape)
+        x = self.act(self.twocon1(x))
+        #print(x.shape)
+        x2 = self.resnet_block1(x1)
+        #print(x2.shape)
+        x = x2 + x
+        
+        x3 = x
+        #print(x.shape)
+        x = self.act(self.twocon2(x))
+        x4 = self.resnet_block2(x3)
+        #print(x4.shape)
+        x = x4 + x
+        
+        x5 = x
+        #print(x.shape)
+        x = self.act(self.twocon3(x))
+        x6 = self.resnet_block3(x5)
+        #print(x6.shape)
+        x = x6 + x
+        return x
+    
+    def pair_downsampler(img):
+    #img has shape B C H W
+    c = img.shape[1]
+
+    filter1 = torch.FloatTensor([[[[0 ,0.5],[0.5, 0]]]]).to(img.device)
+    filter1 = filter1.repeat(c,1, 1, 1)
+
+    filter2 = torch.FloatTensor([[[[0.5 ,0],[0, 0.5]]]]).to(img.device)
+    filter2 = filter2.repeat(c,1, 1, 1)
+
+    output1 = F.conv2d(img, filter1, stride=2, dilation=1, groups=c)
+    output2 = F.conv2d(img, filter2, stride=2, dilation=1, groups=c)
+
+    return output1, output2
+
+def pair_downsampler1(img):
+    #img has shape B C H W
+    c = img.shape[1]
+
+    filter1 = torch.FloatTensor([[[[0 ,0.5, 0],[0.5, 0, 0]]]]).to(img.device)
+    filter1 = filter1.repeat(c,1, 1, 1)
+
+    filter2 = torch.FloatTensor([[[[0.5 ,0, 0],[0, 0.5, 0]]]]).to(img.device)
+    filter2 = filter2.repeat(c,1, 1, 1)
+
+    output1 = F.conv2d(img, filter1, stride=2, groups=c)
+    output2 = F.conv2d(img, filter2, stride=2, groups=c)
+    
+    #padding_values = (0, 1, 0, 0)  #(left, right, top, down)
+    #output1 = F.pad(output1, padding_values, mode='replicate')
+    #output2 = F.pad(output2, padding_values, mode='replicate')
+    return output1, output2
+
+def pair_downsampler2(img):
+    #img has shape B C H W
+    c = img.shape[1]
+
+    filter1 = torch.FloatTensor([[[[0 ,0.35],[0.65, 0]]]]).to(img.device)
+    filter1 = filter1.repeat(c,1, 1, 1)
+
+    filter2 = torch.FloatTensor([[[[0.35 ,0],[0, 0.65]]]]).to(img.device)
+    filter2 = filter2.repeat(c,1, 1, 1)
+
+    output1 = F.conv2d(img, filter1, stride=2, groups=c)
+    output2 = F.conv2d(img, filter2, stride=2, groups=c)
+
+    return output1, output2
+
+def mse(gt: torch.Tensor, pred:torch.Tensor)-> torch.Tensor:
+    loss = torch.nn.MSELoss()
+    return loss(gt,pred)
+
+def loss_func(noisy_img):
+    
+    #1
+    noisy1, noisy2 = pair_downsampler(noisy_img)
+
+    pred1 =  noisy1 - model(noisy1)
+    pred2 =  noisy2 - model(noisy2)
+    
+    #2 
+    noisy11, noisy21 = pair_downsampler1(noisy_img)
+
+    pred11 =  noisy11 - model(noisy11)
+    pred21 =  noisy21 - model(noisy21)
+    
+    #3
+    noisy12, noisy22 = pair_downsampler2(noisy_img)
+
+    pred12 =  noisy12 - model(noisy12)
+    pred22 =  noisy22 - model(noisy22)
+    
+    loss_res = (1/6) * sum([
+      (mse(noisy1, pred2) + mse(noisy2, pred1)) +
+      (mse(noisy11, pred21) + mse(noisy21, pred11)) +
+      (mse(noisy12, pred22) + mse(noisy22, pred12))
+       for mse in [MSELoss()] * 6  # Assuming you have 12 MSE terms
+    ])
+
+    #1
+    noisy_denoised =  noisy_img - model(noisy_img)
+    denoised1, denoised2 = pair_downsampler(noisy_denoised)
+    denoised11, denoised21 = pair_downsampler1(noisy_denoised)
+    denoised12, denoised22 = pair_downsampler2(noisy_denoised)
+
+    
+    loss_cons = (1/6) * (
+        (mse(pred1, denoised1) + mse(pred2, denoised2)) +
+        (mse(pred11, denoised11) + mse(pred21, denoised21)) +
+        (mse(pred12, denoised12) + mse(pred22, denoised22))
+    )
+    
+    loss = loss_res + loss_cons
+
+    return loss
+
+def train(model, optimizer, noisy_img):
+
+  loss = loss_func(noisy_img)
+
+  optimizer.zero_grad()
+  loss.backward()
+  optimizer.step()
+
+  return loss.item()
+
+def test(model, noisy_img, clean_img):
+
+    with torch.no_grad():
+        pred = torch.clamp(noisy_img - model(noisy_img),0,1)
+        MSE = mse(clean_img, pred).item()
+        PSNR = 10*np.log10(1/MSE)
+
+    return PSNR
+
+def denoise(model, noisy_img):
+
+    with torch.no_grad():
+        pred = torch.clamp( noisy_img - model(noisy_img),0,1)
+
+    return pred
+
+# Initialize the model outside the loop
+n_chan = 3  # Assuming RGB images
+model = Network(n_chan).to(device)
+print("The number of parameters of the network is: ", sum(p.numel() for p in model.parameters() if p.requires_grad))
+folder_path = "C:/../kodim" #add your path to your dataset
+PSNRs = []
+losses = []
+
+for filename in os.listdir(folder_path):
+    if filename.endswith(".png"):
+        image_path = os.path.join(folder_path, filename)
+
+        # Transform the image using the defined function
+        clean_img = transform_image(image_path)
+        # Display the transformed image using Matplotlib
+        plt.imshow(clean_img.squeeze().permute(1, 2, 0))  # Corrected line
+        plt.axis('off')  # Hide axes
+        plt.show()
+        
+
+        # Add noise to clean image
+        noisy_img = add_noise(clean_img, noise_level)
+
+        clean_img = clean_img.to(device)
+        noisy_img = noisy_img.to(device)
+        
+        #noisy_img1 = flip(noisy_img)
+        #noisy_img2 = photometric_distort(noisy_img)
+        #noisy_img1 = noisy_img1.to(device)
+        #noisy_img2 = noisy_img2.to(device)
+        
+        # Training
+        max_epoch = 2000     # Training epochs
+        lr = 0.001   # Learning rate
+        step_size = 1500     # Number of epochs at which learning rate decays
+        gamma = 0.5          # Factor by which learning rate decays
+
+        optimizer = optim.Adam(model.parameters(), lr=lr)
+        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=gamma)
+
+        for epoch in tqdm(range(max_epoch)):
+            loss = train(model, optimizer, noisy_img)
+            scheduler.step()
+            losses.append(loss)
+        
+        # Display the transformed image using Matplotlib
+        denoised_img = denoise(model, noisy_img)
+        plt.imshow(denoised_img.cpu().squeeze().permute(1, 2, 0))  # Corrected line
+        plt.axis('off')  # Hide axes
+        plt.show()
+        PSNR = test(model, noisy_img, clean_img)
+        print(PSNR)
+        PSNRs.append(PSNR)
+
+# Calculate average PSNR
+avg_psnr = sum(PSNRs) / len(PSNRs)
+print(avg_psnr)
