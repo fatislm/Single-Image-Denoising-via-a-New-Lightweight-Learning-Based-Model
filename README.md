@@ -22,11 +22,13 @@ Kodak24 datasets. This renders our approach applicable in scenarios with limited
 computational resources.
 
 **Installation**
-**Prerequisites**
-Ensure you have Python and the necessary libraries installed. You can install the required libraries using:
 
+**Prerequisites**
+
+Ensure you have Python and the necessary libraries installed. You can install the required libraries using:
+'''
 pip install -r requirements.txt
 
-
+'''
 
 
