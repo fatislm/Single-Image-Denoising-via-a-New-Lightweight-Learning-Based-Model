@@ -18,30 +18,6 @@ def add_noise(x, noise_level, noise_type):
         noisy = torch.poisson(noise_level * x) / noise_level
     return noisy
 
-def mse(gt, pred):
-    loss = torch.nn.MSELoss()
-    return loss(gt, pred)
-
-def pair_downsampler(img):
-    c = img.shape[1]
-    filter1 = torch.FloatTensor([[[[0 ,0.5],[0.5, 0]]]]).to(img.device).repeat(c, 1, 1, 1)
-    filter2 = torch.FloatTensor([[[[0.5 ,0],[0, 0.5]]]]).to(img.device).repeat(c, 1, 1, 1)
-    output1 = torch.nn.functional.conv2d(img, filter1, stride=2, groups=c)
-    output2 = torch.nn.functional.conv2d(img, filter2, stride=2, groups=c)
-    return output1, output2
-
-def loss_func(noisy_img, model):
-    noisy1, noisy2 = pair_downsampler(noisy_img)
-    pred1 = noisy1 - model(noisy1)
-    pred2 = noisy2 - model(noisy2)
-    loss_res = (mse(noisy1, pred2) + mse(noisy2, pred1)) / 6
-
-    noisy_denoised = noisy_img - model(noisy_img)
-    denoised1, denoised2 = pair_downsampler(noisy_denoised)
-    loss_cons = (mse(pred1, denoised1) + mse(pred2, denoised2)) / 6
-    
-    return loss_res + loss_cons
-
 def train(model, optimizer, noisy_img):
     loss = loss_func(noisy_img, model)
     optimizer.zero_grad()
