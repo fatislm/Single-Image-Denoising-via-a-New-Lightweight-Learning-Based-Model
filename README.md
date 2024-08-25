@@ -19,16 +19,8 @@ need for labelled data. Extensive experiments conducted on synthetic and real im
 of our proposed approach over existing dataset-free methods. Extensive experiments conducted on synthetic
 and real images show that our method achieves up to 2 dB improvements in PSNR on the McMaster and
 Kodak24 datasets. This renders our approach applicable in scenarios with limited data availability and
-computational resources
+computational resources.
 
-# Image Denoising with Custom Neural Network
 
-This project uses a custom neural network for image denoising, supporting both Gaussian and Poisson noise.
 
-## Installation
-
-1. Clone the repository.
-2. Install the dependencies:
-
-   ```bash
-   pip install -r requirements.txt
+ِش
