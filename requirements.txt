@@ -1,3 +1,0 @@
-PyTorch==1.13.0
-numpy==1.21.5
-opencv==4.6.0
