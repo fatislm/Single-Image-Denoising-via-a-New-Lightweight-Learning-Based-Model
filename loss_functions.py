@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from gaussian_smooth_layer import GaussianSmoothLayer
+from pair_downsamplers import pair_downsampler1, pair_downsampler2, pair_downsampler3
 
 def mse(gt: torch.Tensor, pred: torch.Tensor) -> torch.Tensor:
     loss = torch.nn.MSELoss()
@@ -13,17 +14,17 @@ def loss_func(noisy_img, model):
     BlurNet = [GaussianSmoothLayer(3, k_size, 25).cuda() for k_size in BGBlur_kernel]
 
     # 1
-    noisy1, noisy2 = pair_downsampler(noisy_img)
+    noisy1, noisy2 = pair_downsampler1(noisy_img)
     pred1 = noisy1 - model(noisy1)
     pred2 = noisy2 - model(noisy2)
 
     # 2
-    noisy11, noisy21 = pair_downsampler1(noisy_img)
+    noisy11, noisy21 = pair_downsampler2(noisy_img)
     pred11 = noisy11 - model(noisy11)
     pred21 = noisy21 - model(noisy21)
 
     # 3
-    noisy12, noisy22 = pair_downsampler2(noisy_img)
+    noisy12, noisy22 = pair_downsampler3(noisy_img)
     pred12 = noisy12 - model(noisy12)
     pred22 = noisy22 - model(noisy22)
 
@@ -36,9 +37,9 @@ def loss_func(noisy_img, model):
 
     # 1
     noisy_denoised = noisy_img - model(noisy_img)
-    denoised1, denoised2 = pair_downsampler(noisy_denoised)
-    denoised11, denoised21 = pair_downsampler1(noisy_denoised)
-    denoised12, denoised22 = pair_downsampler2(noisy_denoised)
+    denoised1, denoised2 = pair_downsampler1(noisy_denoised)
+    denoised11, denoised21 = pair_downsampler2(noisy_denoised)
+    denoised12, denoised22 = pair_downsampler3(noisy_denoised)
 
     loss_cons = (1/6) * (
         (mse(pred1, denoised1) + mse(pred2, denoised2)) +
