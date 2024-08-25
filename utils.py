@@ -1,6 +1,7 @@
 import torch
 from torchvision import transforms
 from PIL import Image
+from loss_functions import loss_func
 
 def transform_image(image_path):
     transform = transforms.Compose([
