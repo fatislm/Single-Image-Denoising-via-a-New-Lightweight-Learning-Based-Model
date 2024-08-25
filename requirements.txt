@@ -1,1 +1,8 @@
+# Python version
+python==3.6.9
 
+# PyTorch version
+torch==1.5.1
+
+# OpenCV version
+opencv-python==4.10.0
