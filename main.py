@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 from utils import transform_image, add_noise, train, test, denoise
 from models import Network
+import torch.optim as optim
 
 def main():
     # Set up device
@@ -26,7 +27,7 @@ def main():
     plt.show()
 
     # Add noise to the clean image
-    noisy_img = add_noise(clean_img, noise_level, noise_type)
+    noisy_img = add_noise(clean_img, noise_level, noise_type='gauss')
 
     # Move images to device (GPU or CPU)
     clean_img = clean_img.to(device)
