@@ -26,9 +26,9 @@ computational resources.
 **Prerequisites**
 
 Ensure you have Python and the necessary libraries installed. You can install the required libraries using:
-'''
+```
 pip install -r requirements.txt
 
-'''
+```
 
 
