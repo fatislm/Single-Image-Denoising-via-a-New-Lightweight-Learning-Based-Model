@@ -23,4 +23,3 @@ computational resources.
 
 
 
-ِش
